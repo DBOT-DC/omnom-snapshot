@@ -1,0 +1,8 @@
+# OS files
+.DS_Store
+__pycache__/
+*.pyc
+
+# Temp files
+*.tmp
+*.bak
