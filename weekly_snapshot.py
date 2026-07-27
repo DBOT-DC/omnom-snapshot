@@ -182,10 +182,10 @@ def main():
     PRE_PATH = "/Users/penny/.openclaw-telegram/workspace/omnom-snapshot/omnom-snapshot-pre-announcement.csv"
     
     all_sources = [PRE_PATH]
-    if os.path.exists(WEEKLY_DIR):
-        for f in sorted(os.listdir(WEEKLY_DIR)):
+    if os.path.exists(SNAPSHOT_DIR):
+        for f in sorted(os.listdir(SNAPSHOT_DIR)):
             if f.endswith(".csv"):
-                all_sources.append(os.path.join(WEEKLY_DIR, f))
+                all_sources.append(os.path.join(SNAPSHOT_DIR, f))
     
     ever_holders = {}
     for src in sorted(all_sources):
@@ -227,18 +227,37 @@ def main():
                              ",".join(data["snapshots"]), data["first_seen"]])
     print(f"Ever-held updated: {EVER_HELD_PATH} ({len(sorted_ever):,} total unique holders)")
 
-    # Baseline comparison
+    # Telegram-formatted report
+    fmt_bal = lambda raw: f"{raw / 10**DECIMALS / 10**12:,.1f}T" if raw >= 10**DECIMALS * 10**12 else f"{raw / 10**DECIMALS / 10**9:,.1f}B" if raw >= 10**DECIMALS * 10**9 else f"{raw / 10**DECIMALS:,.0f}"
+    supply_fmt = f"{total_supply / 10**DECIMALS:,.0f}" if total_supply else "unknown"
     diff = len(sorted_holders) - BASELINE_HOLDERS
-    print(f"\nBaseline comparison (Jun 7, block {BASELINE_BLOCK}):")
-    print(f"  Pre-announcement holders: {BASELINE_HOLDERS:,}")
-    print(f"  Current holders: {len(sorted_holders):,}")
-    print(f"  Change: {'+' if diff >= 0 else ''}{diff}")
-    print(f"  Top 10 hold: {top10 / EXPECTED_SUPPLY * 100:.2f}%")
-    print(f"  Top 100 hold: {top100 / EXPECTED_SUPPLY * 100:.2f}%")
+    diff_str = f"+{diff}" if diff >= 0 else str(diff)
 
-    # Final snapshot marker
+    lines = [
+        f"📊 **OMNOM Weekly Snapshot** — {now.strftime('%B %d, %Y')}",
+        f"",  
+        f"👤 Holders: {len(sorted_holders):,} (baseline {diff_str})",
+        f"📦 Supply: {supply_fmt} OMNOM" if total_supply else "📦 Supply: unknown",
+        f"🔗 Block: {latest_block:,}",
+        f"",
+        f"**Top 10 Holders** ({top10 / EXPECTED_SUPPLY * 100:.1f}% of supply):",
+    ]
+    for i, h in enumerate(sorted_holders[:10]):
+        addr = h.get("address") or h.get("holderAddress", "")
+        short = addr[:6] + "..." + addr[-4:]
+        bal = int(h["value"])
+        pct = bal / EXPECTED_SUPPLY * 100
+        lines.append(f"{i+1}. `{short}` — {fmt_bal(bal)} ({pct:.2f}%)")
+
+    lines.append("")
+    lines.append(f"📊 Top 10: {top10 / EXPECTED_SUPPLY * 100:.1f}% | Top 100: {top100 / EXPECTED_SUPPLY * 100:.1f}%")
+    lines.append(f"📁 Files: `weekly-{date_str}.json` + `.csv` | Ever-held: {len(sorted_ever):,} unique")
+
     if days_remaining <= 7:
-        print(f"\n🏁 This is a FINAL-WINDOW snapshot ({days_remaining:.0f} days before end date)")
+        lines.append(f"")
+        lines.append(f"🏁 FINAL-WINDOW snapshot ({days_remaining:.0f} days before end date)")
+
+    print("\n" + "\n".join(lines))
 
 
 if __name__ == "__main__":
