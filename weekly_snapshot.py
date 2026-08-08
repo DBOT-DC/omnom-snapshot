@@ -18,8 +18,9 @@ OMNOM = "0xe3fcA919883950c5cD468156392a6477Ff5d18de"
 DECIMALS = 18
 EXPECTED_SUPPLY = 10**DECIMALS * 10**15  # 1,000,000,000,000,000
 
-# Dogechain shutdown: announced Jun 8, ~60 days → ~Aug 7. Final snapshot Aug 3 (Sun before).
-FINAL_SNAPSHOT_DATE = datetime(2026, 8, 3, 23, 59, 58, tzinfo=timezone.utc)
+# Dogechain shutdown: Aug 8, 2026 12:00 UTC. Final snapshot must be before this.
+DOGCHAIN_SHUTDOWN = datetime(2026, 8, 8, 12, 0, 0, tzinfo=timezone.utc)
+FINAL_SNAPSHOT_DATE = DOGCHAIN_SHUTDOWN  # allow runs up to shutdown
 SNAPSHOT_DIR = os.path.join(os.path.dirname(__file__), "weekly")
 os.makedirs(SNAPSHOT_DIR, exist_ok=True)
 
@@ -78,17 +79,16 @@ def main():
     now = datetime.now(timezone.utc)
     timestamp = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    # End-date guard: stop after final snapshot
+    # End-date guard: stop after Dogechain shutdown
     if now > FINAL_SNAPSHOT_DATE:
-        print(f"⛔ END DATE REACHED: {FINAL_SNAPSHOT_DATE.isoformat()}")
-        print(f"   Dogechain estimated shutdown ~Aug 7, 2026. Final snapshot was Aug 3.")
+        print(f"⛔ DOGECHAIN SHUTDOWN PASSED: {FINAL_SNAPSHOT_DATE.isoformat()}")
+        print(f"   Dogechain shut down Aug 8, 2026 12:00 UTC. No more snapshots possible.")
         print(f"   This cron should be disabled. Exiting.")
         return
 
-    # Warning if within 1 week of final snapshot
-    days_remaining = (FINAL_SNAPSHOT_DATE - now).total_seconds() / 86400
-    if days_remaining <= 7:
-        print(f"⚠️ FINAL SNAPSHOT WINDOW: {days_remaining:.0f} days until last scheduled snapshot")
+    # Time until shutdown
+    time_remaining = DOGCHAIN_SHUTDOWN - now
+    hours_remaining = time_remaining.total_seconds() / 3600
 
     latest_block = get_latest_block()
 
@@ -252,12 +252,23 @@ def main():
     lines.append("")
     lines.append(f"📊 Top 10: {top10 / EXPECTED_SUPPLY * 100:.1f}% | Top 100: {top100 / EXPECTED_SUPPLY * 100:.1f}%")
     lines.append(f"📁 Files: `weekly-{date_str}.json` + `.csv` | Ever-held: {len(sorted_ever):,} unique")
-
-    if days_remaining <= 7:
-        lines.append(f"")
-        lines.append(f"🏁 FINAL-WINDOW snapshot ({days_remaining:.0f} days before end date)")
+    lines.append(f"⏰ Shutdown in ~{hours_remaining:.0f}h (Aug 8 12:00 UTC)")
 
     print("\n" + "\n".join(lines))
+
+    # Auto-push to GitHub
+    import subprocess
+    try:
+        subprocess.run(["git", "add", "-A"], check=True, cwd=SNAPSHOT_DIR + "/..")
+        date_label = now.strftime("%b %-d")
+        msg = f"Weekly snapshot {date_label} ({len(sorted_holders):,} holders)"
+        subprocess.run(["git", "commit", "-m", msg], check=True, cwd=SNAPSHOT_DIR + "/..")
+        subprocess.run(["git", "push", "origin", "main"], check=True, cwd=SNAPSHOT_DIR + "/..", timeout=30)
+        print("✅ Pushed to GitHub")
+    except subprocess.CalledProcessError as e:
+        print(f"⚠️ Git push failed: {e}")
+    except subprocess.TimeoutExpired:
+        print("⚠️ Git push timed out")
 
 
 if __name__ == "__main__":
