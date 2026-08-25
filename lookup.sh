@@ -1,0 +1,120 @@
+#!/bin/bash
+# OMNOM Wallet Lookup — Ever-Held Mode
+# Checks master list (union of ALL snapshots)
+# Shows max balance ever held + whether they currently still hold
+
+WALLET="$1"
+EVER_HELD_CSV="/Users/penny/.openclaw-telegram/workspace/omnom-snapshot/omnom-snapshot-ever-held.csv"
+LATEST_CSV="/Users/penny/.openclaw-telegram/workspace/omnom-snapshot/omnom-snapshot-latest.csv"
+DECIMALS=18
+
+if [[ ! "$WALLET" =~ ^0x[a-fA-F0-9]{40}$ ]]; then
+    echo "INVALID"
+    exit 1
+fi
+
+WALLET_LOWER=$(echo "$WALLET" | tr '[:upper:]' '[:lower:]')
+
+# Check ever-held master list (tab-delimited)
+RESULT=$(awk -F'\t' -v addr="$WALLET_LOWER" '
+    NR > 1 && $2 == addr {
+        printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s", $1, $2, $3, $4, $5, $6, $7, $8
+        exit 0
+    }
+' "$EVER_HELD_CSV")
+
+if [ -n "$RESULT" ]; then
+    RANK=$(echo "$RESULT" | cut -f1)
+    BAL_RAW=$(echo "$RESULT" | cut -f3)
+    PCT=$(echo "$RESULT" | cut -f4)
+    BEST_RANK=$(echo "$RESULT" | cut -f5)
+    SNAP_COUNT=$(echo "$RESULT" | cut -f6)
+    SNAPSHOTS=$(echo "$RESULT" | cut -f7)
+    FIRST_SEEN=$(echo "$RESULT" | cut -f8)
+
+    # Format balance
+    BAL_FMT=$(python3 -c "print(f'{float(\"$BAL_RAW\") / 10**$DECIMALS:,.2f}')")
+
+    # Determine class (7-tier marine ecosystem)
+    PCT_NUM=$(echo "$PCT" | awk '{printf "%.6f", $1}')
+    if (( $(echo "$PCT_NUM >= 10.0" | bc -l) )); then
+        CLASS="🦑 Kraken"
+    elif (( $(echo "$PCT_NUM >= 1.0" | bc -l) )); then
+        CLASS="🐋 Whale"
+    elif (( $(echo "$PCT_NUM >= 0.1" | bc -l) )); then
+        CLASS="🐬 Dolphin"
+    elif (( $(echo "$PCT_NUM >= 0.01" | bc -l) )); then
+        CLASS="🦈 Shark"
+    elif (( $(echo "$PCT_NUM >= 0.001" | bc -l) )); then
+        CLASS="🐙 Octopus"
+    elif (( $(echo "$PCT_NUM >= 0.0001" | bc -l) )); then
+        CLASS="🦀 Crab"
+    else
+        CLASS="🦄 Seahorse"
+    fi
+
+    # Check if currently holds
+    STILL_HOLDS="no"
+    if [ -f "$LATEST_CSV" ]; then
+        LATEST_CHECK=$(awk -F',' -v addr="$WALLET_LOWER" '
+            NR > 1 && tolower($2) == addr { print "yes"; exit 0 }
+        ' "$LATEST_CSV")
+        [ "$LATEST_CHECK" = "yes" ] && STILL_HOLDS="yes"
+    fi
+
+    echo "STATUS:EVER_HELD"
+    echo "RANK:$RANK"
+    echo "BEST_RANK:$BEST_RANK"
+    echo "BALANCE:$BAL_FMT"
+    echo "PERCENTAGE:$PCT"
+    echo "CLASS:$CLASS"
+    echo "SNAPSHOTS:$SNAP_COUNT ($SNAPSHOTS)"
+    echo "FIRST_SEEN:$FIRST_SEEN"
+    echo "CURRENTLY_HOLDS:$STILL_HOLDS"
+    exit 0
+fi
+
+# Fallback: check latest snapshot directly (user may have been missed by ever-held)
+if [ -f "$LATEST_CSV" ]; then
+    LATEST_RESULT=$(awk -F',' -v addr="$WALLET_LOWER" '
+        NR > 1 && tolower($2) == addr {
+            printf "%s\t%s\t%s\t%s\t%s", $1, $2, $3, $4, $5
+            exit 0
+        }
+    ' "$LATEST_CSV")
+    if [ -n "$LATEST_RESULT" ]; then
+        RANK=$(echo "$LATEST_RESULT" | cut -f1)
+        BAL_FMT=$(echo "$LATEST_RESULT" | cut -f4 | tr -d '\r')
+        BAL_FMT=$(echo "$BAL_FMT" | awk '{printf "%.2f", $1}' | python3 -c "import sys; print('{:,.2f}'.format(float(sys.stdin.read())))")
+        PCT=$(echo "$LATEST_RESULT" | cut -f5 | tr -d '\r')
+        PCT_NUM=$(echo "$PCT" | awk '{printf "%.6f", $1}')
+        if (( $(echo "$PCT_NUM >= 10.0" | bc -l) )); then
+            CLASS="🦑 Kraken"
+        elif (( $(echo "$PCT_NUM >= 1.0" | bc -l) )); then
+            CLASS="🐋 Whale"
+        elif (( $(echo "$PCT_NUM >= 0.1" | bc -l) )); then
+            CLASS="🐬 Dolphin"
+        elif (( $(echo "$PCT_NUM >= 0.01" | bc -l) )); then
+            CLASS="🦈 Shark"
+        elif (( $(echo "$PCT_NUM >= 0.001" | bc -l) )); then
+            CLASS="🐙 Octopus"
+        elif (( $(echo "$PCT_NUM >= 0.0001" | bc -l) )); then
+            CLASS="🦀 Crab"
+        else
+            CLASS="🦄 Seahorse"
+        fi
+        echo "STATUS:CURRENTLY_HOLDS"
+        echo "RANK:$RANK"
+        echo "BEST_RANK:$RANK"
+        echo "BALANCE:$BAL_FMT"
+        echo "PERCENTAGE:$PCT"
+        echo "CLASS:$CLASS"
+        echo "SNAPSHOTS:1 (latest only)"
+        echo "FIRST_SEEN:latest snapshot"
+        echo "CURRENTLY_HOLDS:yes"
+        exit 0
+    fi
+fi
+
+echo "NOT_FOUND"
+exit 0
